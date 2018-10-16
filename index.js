@@ -17,6 +17,14 @@ function doesntExist (dir, file) {
   return !fs.existsSync(path.join(dir, file))
 }
 
+function mustBeRelative (field, file, key) {
+  const mustBeRelativeList = ['browser']
+
+  if (!mustBeRelativeList.includes(field)) return
+
+  return !file.match(/^.\//) || (key && !key.match(/^.\//))
+}
+
 function checkField (pkg, dir, field) {
   const errors = []
 
@@ -26,12 +34,30 @@ function checkField (pkg, dir, field) {
         .keys(pkg[field])
         .forEach(key => {
           if (doesntExist(dir, pkg[field][key])) {
-            errors.push(`${field}.${key}`)
+            errors.push({
+              type: 'doesNotExist',
+              content: `${field}.${key}`
+            })
+          }
+          if (mustBeRelative(field, pkg[field][key], key)) {
+            errors.push({
+              type: 'needsRelativePath',
+              content: `${field}.${key}`
+            })
           }
         })
     } else {
       if (doesntExist(dir, pkg[field])) {
-        errors.push(field)
+        errors.push({
+          type: 'doesNotExist',
+          content: field
+        })
+      }
+      if (mustBeRelative(field, pkg[field])) {
+        errors.push({
+          type: 'needsRelativePath',
+          content: field
+        })
       }
     }
   }
@@ -44,7 +70,10 @@ function checkFields (pkg, dir, otherFields) {
 
   // https://docs.npmjs.com/files/package.json#main
   if (pkg.main && doesntExist(dir, pkg.main)) {
-    errors.push('main')
+    errors.push({
+      type: 'doesNotExist',
+      content: 'main'
+    })
   }
 
   const fields = FIELDS.concat(otherFields || [])
@@ -93,7 +122,16 @@ function pkgOk (dir, { fields = [], bin = [] } = {}) {
 
   if (errors.length) {
     const message = errors
-      .map(error => `${error} path doesn't exist in package.json`)
+      .map(({ type, content }) => {
+        let err = []
+        if (type === 'doesNotExist') {
+          err.push(`${content} path doesn't exist in package.json`)
+        }
+        if (type === 'needsRelativePath') {
+          err.push(`${content} must use a relative path for value (and key when value is an object)`)
+        }
+        return err.reduce((mem, curr) => curr.concat(mem), [])
+      })
       .join('\n')
 
     throw new Error(message)
